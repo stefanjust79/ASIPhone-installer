@@ -507,7 +507,7 @@ class Updater:
             self.view.update(fields)
             if phase is not None:
                 self.view.update(phase=phase, message=message or "", changed_at=time.time())
-            self.view.update(protocol=1, heartbeat=time.time(), source=IMAGE,
+            self.view.update(protocol=1, check_before_install=True, heartbeat=time.time(), source=IMAGE,
                              handled_request=self.state.get("last_request"))
             atomic_json(self.root / "status/status.json", self.view)
 
@@ -585,11 +585,29 @@ class Updater:
         (self.root / "journal.json").unlink()
         self.publish("rolled_back", "Das Update wurde zurückgenommen. Die vorherige Version läuft wieder.", finished_at=time.time())
 
-    def update(self):
-        self.publish("downloading", "Die aktuelle veröffentlichte Serverversion wird heruntergeladen.")
+    def check(self):
+        self.publish("checking", "Die veröffentlichte Serverversion wird geprüft.", offer=None, update_available=False)
         self.run(["docker", "pull", IMAGE], timeout=1800)
         old = json.loads(self.run(["docker", "inspect", "asiphone"]))[0]
         new = json.loads(self.run(["docker", "image", "inspect", IMAGE]))[0]
+        if old["Image"] == new["Id"]:
+            self.publish("up_to_date", "Die aktuelle Serverversion ist bereits installiert.", finished_at=time.time())
+            return
+        digest = next((x for x in new.get("RepoDigests", []) if re.fullmatch(r"ghcr\.io/stefanjust79/asiphone-server@sha256:[a-f0-9]{64}", x)), None)
+        if digest is None:
+            raise RuntimeError("Das Serverabbild besitzt keine überprüfbare Registry-Kennung.")
+        version = self.run(["docker", "run", "--rm", "--network", "none", "--entrypoint", "python", digest,
+                            "-c", "from app import __version__; print(__version__)"], timeout=30)
+        offer = {"id": str(uuid.uuid4()), "digest": digest, "version": version, "checked_at": time.time()}
+        self.publish("update_available", "Eine neue Serverversion ist verfügbar. Installation erst nach Bestätigung.",
+                     offer=offer, update_available=True, finished_at=time.time())
+
+    def update(self, expected_digest=None):
+        self.publish("downloading", "Die aktuelle veröffentlichte Serverversion wird heruntergeladen.")
+        image = expected_digest or IMAGE
+        self.run(["docker", "pull", image], timeout=1800)
+        old = json.loads(self.run(["docker", "inspect", "asiphone"]))[0]
+        new = json.loads(self.run(["docker", "image", "inspect", image]))[0]
         if old["Image"] == new["Id"]:
             self.publish("up_to_date", "Die aktuelle Serverversion ist bereits installiert.", finished_at=time.time())
             return
@@ -603,6 +621,8 @@ class Updater:
                        if re.fullmatch(r"ghcr\.io/stefanjust79/asiphone-server@sha256:[a-f0-9]{64}", item)), None)
         if digest is None:
             raise RuntimeError("Das heruntergeladene Serverabbild besitzt keine überprüfbare Registry-Kennung.")
+        if expected_digest is not None and digest != expected_digest:
+            raise RuntimeError("Das Serverabbild stimmt nicht mit dem bestätigten Update überein.")
         self.backups.mkdir(mode=0o700, parents=True, exist_ok=True)
         size = sum(item.stat().st_size for item in Path(mount["Source"]).rglob("*") if item.is_file() and not item.is_symlink())
         for path in (self.backups, Path(mount["Source"])):
@@ -639,7 +659,7 @@ class Updater:
             atomic_json(self.root / "journal.json", journal)
             (self.root / "journal.json").unlink()
             self.publish("success", "Die neue Serverversion wurde erfolgreich gestartet.",
-                         finished_at=time.time(), installed_digest=digest, backup=backup_name)
+                         finished_at=time.time(), installed_digest=digest, backup=backup_name, offer=None, update_available=False)
         except Exception:
             LOG.exception("Update failed; restoring previous runtime and original data")
             self.recover()
@@ -665,7 +685,23 @@ class Updater:
             if self.view.get("phase") == "waiting_calls":
                 self.publish("deferred", "Das Zeitfenster ist abgelaufen. Nächster Versuch zum nächsten geplanten Termin.")
             return
-        if self.active_calls():
+        kind = request.get("kind") if manual else "scheduled"
+        if manual and kind not in ("check", "install"):
+            raise ValueError("Update-Aufträge benötigen eine Prüfung oder eine bestätigte Installation.")
+        expected_digest = None
+        if kind == "install":
+            offer = self.view.get("offer") or {}
+            expected_digest = request.get("digest")
+            if (not self.view.get("update_available") or request.get("offer_id") != offer.get("id")
+                    or expected_digest != offer.get("digest")
+                    or not isinstance(expected_digest, str)
+                    or not re.fullmatch(r"ghcr\.io/stefanjust79/asiphone-server@sha256:[a-f0-9]{64}", expected_digest)
+                    or not 0 <= time.time() - offer.get("checked_at", 0) < 3600):
+                self.state["last_request"] = request_id
+                self.save_state()
+                self.publish("expired", "Die bestätigte Update-Prüfung ist abgelaufen. Bitte erneut prüfen.")
+                return
+        if kind != "check" and self.active_calls():
             self.publish("waiting_calls", "Es läuft ein Gespräch. Der Server wartet mit dem Update.")
             return
         if manual:
@@ -674,7 +710,10 @@ class Updater:
             self.state["last_slot"] = slot
         self.save_state()  # Failed attempts are not retried endlessly or across restarts.
         self.publish("checking", "Update wird geprüft.", started_at=now.timestamp(), trigger="manual" if manual else "scheduled")
-        self.update()
+        if kind == "check":
+            self.check()
+        else:
+            self.update(expected_digest)
 
     def serve(self):
         def heartbeat():
