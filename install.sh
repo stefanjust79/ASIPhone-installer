@@ -13,6 +13,7 @@ CHECK_ONLY=false
 NEW_INSTALL=false
 INITIAL_PASSWORD=""
 PREVIOUS_IMAGE=""
+INSTALLED_VERSION=""
 
 usage() {
     cat <<'EOF'
@@ -317,6 +318,9 @@ start_asiphone() {
         rollback_image
         fail "ASIPhone hat den Bereitschaftstest nicht bestanden."
     fi
+    # Read the running image, not a possibly stale installer version label.
+    INSTALLED_VERSION=$(docker exec asiphone python -c 'from app import __version__; print(__version__)')
+    [[ -n "${INSTALLED_VERSION}" ]] || fail "Die gestartete Serverversion konnte nicht bestätigt werden."
 }
 
 configure_firewall() {
@@ -339,6 +343,7 @@ show_result() {
     address="${address:-SERVER-IP}"
     printf '\n'
     success "ASIPhone wurde erfolgreich installiert."
+    printf 'Gestartete Serverversion: %s\n' "${INSTALLED_VERSION}"
     printf '\nWebkonfiguration:  http://%s:8090\n' "${address}"
     if [[ "${NEW_INSTALL}" == true ]]; then
         printf 'Erstes Admin-Kennwort: %s\n' "${INITIAL_PASSWORD}"
