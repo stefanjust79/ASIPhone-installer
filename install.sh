@@ -573,6 +573,7 @@ class Updater:
         if not journal:
             return
         if journal.get("committed"):
+            self.cleanup_versions(journal)
             (self.root / "journal.json").unlink()
             self.publish("success", "Der letzte Versionswechsel wurde erfolgreich abgeschlossen.", finished_at=time.time())
             return
@@ -584,6 +585,41 @@ class Updater:
             raise RuntimeError("Auch die vorherige Version ist nicht erreichbar. Die ursprünglichen Daten bleiben erhalten; Support erforderlich.")
         (self.root / "journal.json").unlink()
         self.publish("rolled_back", "Das Update wurde zurückgenommen. Die vorherige Version läuft wieder.", finished_at=time.time())
+
+    def cleanup_versions(self, journal):
+        """Keep current runtime plus its immediate rollback; never prune unrelated Docker data."""
+        removed = 0
+        try:
+            if not all(journal.get(key) for key in ('old_volume', 'new_volume', 'backup')) or not self.backups.exists():
+                return
+            protected = {journal['old_volume'], journal['new_volume']}
+            for backup in self.backups.iterdir():
+                match = re.fullmatch(r'pre-update-([a-f0-9]{32})\.tgz', backup.name)
+                if not match or backup.name == journal['backup'] or backup.is_symlink() or not backup.is_file():
+                    continue
+                ident = match[1]
+                volume = 'asiphone-data-update-' + ident
+                # Docker refuses deletion of volumes/images used by any container; no force or global prune.
+                if volume not in protected:
+                    present = self.run(['docker', 'volume', 'ls', '--format', '{{.Name}}']).splitlines()
+                    if volume in present:
+                        self.run(['docker', 'volume', 'rm', volume])
+                tag = 'asiphone/server:rollback-' + ident
+                tags = self.run(['docker', 'image', 'ls', '--format', '{{.Repository}}:{{.Tag}}']).splitlines()
+                if tag in tags:
+                    image_id = json.loads(self.run(['docker', 'image', 'inspect', tag]))[0]['Id']
+                    self.run(['docker', 'image', 'rm', tag])
+                    try:
+                        self.run(['docker', 'image', 'rm', image_id])
+                    except RuntimeError:
+                        LOG.info('Old image remains referenced; preserving it: %s', image_id)
+                backup.unlink()
+                removed += 1
+            self.publish(retained_versions=2, removed_update_backups=removed)
+        except Exception:
+            # Cleanup must never roll back a healthy installation or remove the immediate rollback.
+            LOG.exception('Older ASIPhone update snapshots could not be fully removed')
+            self.publish(cleanup_warning='Ältere Update-Sicherungen konnten nicht vollständig bereinigt werden.')
 
     def check(self):
         self.publish("checking", "Die veröffentlichte Serverversion wird geprüft.", offer=None, update_available=False)
@@ -657,6 +693,7 @@ class Updater:
                 raise RuntimeError("Die neue Version hat den Bereitschaftstest nicht bestanden.")
             journal["committed"] = True
             atomic_json(self.root / "journal.json", journal)
+            self.cleanup_versions(journal)
             (self.root / "journal.json").unlink()
             self.publish("success", "Die neue Serverversion wurde erfolgreich gestartet.",
                          finished_at=time.time(), installed_digest=digest, backup=backup_name, offer=None, update_available=False)
