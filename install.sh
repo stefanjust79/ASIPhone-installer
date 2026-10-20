@@ -364,7 +364,6 @@ show_result() {
     else
         printf 'Admin-Kennwort und sämtliche Kundendaten wurden beibehalten.\n'
     fi
-    printf '\nDen Zugriff von außen im Browser einrichten: WireGuard-Portweiterleitung oder Relay-Service.\n'
 }
 
 # BEGIN GENERATED UPDATER
