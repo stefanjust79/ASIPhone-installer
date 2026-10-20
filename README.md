@@ -33,15 +33,24 @@ sudo bash asiphone-install.sh
 
 Der Installer installiert Docker bei Bedarf, lädt das öffentliche Serverabbild
 und richtet den Dienst `asiphone.service` ein. Am Ende zeigt er die lokale
-Webkonfiguration auf Port 8090 und ein zufällig erzeugtes Admin-Kennwort an.
-Bewahre dieses Kennwort sicher auf und ändere es nach der ersten Anmeldung.
+Webadresse `http://<Server-IP>:8090` und verweist auf die Einrichtung im Browser.
 
-WireGuard ist bei Neuinstallationen standardmäßig aktiviert. Trage anschließend
-die öffentliche Serveradresse in der Weboberfläche ein und prüfe die
-UDP-Portweiterleitung. Bei Updates bleiben gespeicherte VPN-Einstellungen erhalten.
-Telefonanlage und Benutzer werden ebenfalls in der Weboberfläche eingerichtet.
-Jede Installation erzeugt eigene Schlüssel und
-Zertifikate. Bestehende Anlagenzugangsdaten sind nicht im Installer enthalten.
+Beim allerersten Aufruf ist kein Kennwort erforderlich. Der Assistent führt durch:
+
+1. Eigenes Admin-Passwort festlegen und bestätigen.
+2. Lokale AGFEO-Telefonanlage konfigurieren.
+3. Öffentlichen DNS-Namen oder integriertes ASIPhone-DynDNS auswählen.
+4. WireGuard einrichten (Vorgaben: UDP 51820 und `10.77.0.0/24`).
+5. Portweiterleitung bestätigen oder den lizenzierten Relay-Service aktivieren.
+
+Nach dem ersten Schritt ist das festgelegte Admin-Passwort erforderlich. Eine
+unterbrochene Einrichtung wird fortgesetzt; abgeschlossene und bestehende
+Installationen öffnen die normale Verwaltung. Neue Benutzer werden bei gültiger
+Lizenz und freiem Benutzerplatz automatisch aktiviert. Ohne Freigabe bleiben sie
+deaktiviert, mit einem Hinweis auf den Grund.
+
+Jede Installation erzeugt eigene Schlüssel und Zertifikate. Bestehende
+Anlagenzugangsdaten sind nicht im Installer enthalten.
 
 ## Netzwerk
 

@@ -359,12 +359,12 @@ show_result() {
     printf 'Gestartete Serverversion: %s\n' "${INSTALLED_VERSION}"
     printf '\nWebkonfiguration:  http://%s:8090\n' "${address}"
     if [[ "${NEW_INSTALL}" == true ]]; then
-        printf 'Erstes Admin-Kennwort: %s\n' "${INITIAL_PASSWORD}"
-        printf '\nBitte das Kennwort sicher aufbewahren und nach der Anmeldung ändern.\n'
+        printf '\nDiese Adresse im Browser öffnen und mit dem Einrichtungsassistenten fortfahren.\n'
+        printf 'Beim ersten Aufruf legen Sie dort Ihr Admin-Passwort fest.\n'
     else
         printf 'Admin-Kennwort und sämtliche Kundendaten wurden beibehalten.\n'
     fi
-    printf '\nNach der WireGuard-Einrichtung muss UDP 51820 am Router weitergeleitet werden.\n'
+    printf '\nDen Zugriff von außen im Browser einrichten: WireGuard-Portweiterleitung oder Relay-Service.\n'
 }
 
 # BEGIN GENERATED UPDATER
